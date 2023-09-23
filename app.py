@@ -154,4 +154,4 @@ with st.form(key='insight_extraction_form'):
             for file_name, text_content in file_contents.items():
                 insights = extract_insights(api_key, text_content)
                 st.write(f"Insights from {file_name}:")
-                st.write(insights)
+                st.write(insights) 
