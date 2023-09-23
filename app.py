@@ -5,6 +5,7 @@ from pptx import Presentation
 import re
 import os
 import openai
+from embedchain import EmbedChain
 
 def query_openai(api_key, messages):
     openai.api_key = api_key
@@ -70,46 +71,46 @@ def find_keyword_in_text(keyword, text):
     matches = re.finditer(keyword, text, re.IGNORECASE)
     snippets = []
     for match in matches:
-        start_index = max(0, match.start() - SNIPPET_LENGTH)
-        end_index = min(len(text), match.end() + SNIPPET_LENGTH)
+        start_index = max(0, match.start() - 50)
+        end_index = min(len(text), match.end() + 50)
         snippet = text[start_index:end_index]
         snippets.append(snippet)
     return snippets
 
-def extract_insights(text):
+embedchain = EmbedChain()
+
+def chunk_text(text, chunk_size):
+    chunks = embedchain.split_into_chunks(text, chunk_size)
+    return chunks
+
+def extract_insights(api_key, text):
     insights = ""
-    segments = text.split('. ')  # Split by sentences
+    chunks = chunk_text(text, 1000)
     
-    # Join sentences until they approach the segment size
-    i = 0
-    while i < len(segments):
-        segment = segments[i]
-        while len(segment) < SEGMENT_SIZE and i < len(segments) - 1:
-            i += 1
-            segment += ". " + segments[i]
+    for chunk in chunks:
+        segment = " ".join(chunk)
         
         try:
-            response = openai.Completion.create(
-                model="text-davinci-003",
-                prompt=f"Provide insights on the following transcript segment: {segment}",
-                max_tokens=MAX_TOKENS
+            response = query_openai(
+                api_key,
+                [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": f"Provide insights on the following transcript segment: {segment}"}
+                ]
             )
-            insights += response.choices[0].text.strip() + " "
+            insights += response + " "
         except Exception as e:
             st.error(f"OpenAI API error: {e}")
-        
-        i += 1
     
     return insights.strip()
 
 # Constants
 MAX_TOKENS = 200
 SEGMENT_SIZE = 1000
-SNIPPET_LENGTH = 50
 
 st.title("Transcript Analysis Tool")
 
-api_key = st.text_input("API Key", type="password")  # Moved API Key input here
+api_key = st.text_input("API Key", type="password")
 
 uploaded_files = st.file_uploader(
     "Choose transcript files (.txt, .docx, .pdf, .ppt)",
@@ -117,40 +118,40 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
 )
 
-# New file size check and filtering
-accepted_files = [file for file in uploaded_files if file.size <= 10e6]  # 10 MB limit
+accepted_files = [file for file in uploaded_files if file.size <= 10e6]
 rejected_files = [file for file in uploaded_files if file.size > 10e6]
 
 for rejected_file in rejected_files:
     st.error(f"{rejected_file.name} is too large. Please upload smaller files.")
 
-guiding_questions = st.text_area("Enter the guiding questions or keywords (separated by commas)")
-
-# Dictionary to store text content for each accepted file
 file_contents = {}
 
 if accepted_files:
-    with st.expander("Uploaded Files & Previews"):  # Updated to use expander
+    with st.expander("Uploaded Files & Previews"):
         for accepted_file in accepted_files:
             text_content = extract_text(accepted_file)
             file_contents[accepted_file.name] = text_content
             st.write(f"Contents of {accepted_file.name}: {text_content[:500]}...")
 
-if guiding_questions:
-    with st.expander("Keyword Matches"):
-        keywords = [keyword.strip() for keyword in guiding_questions.split(",")]
+with st.form(key='insight_extraction_form'):
+    guiding_questions = st.text_area("Enter the guiding questions or keywords (separated by commas)")
 
-        for keyword in keywords:
+    submit_button = st.form_submit_button(label='Extract Insights', on_click=None)
+
+    if submit_button and guiding_questions:  
+        with st.expander("Keyword Matches"):
+            keywords = [keyword.strip() for keyword in guiding_questions.split(",")]
+
+            for keyword in keywords:
+                for file_name, text_content in file_contents.items():
+                    snippets = find_keyword_in_text(keyword, text_content)
+                    if snippets:
+                        st.write(f"Found {len(snippets)} instances of '{keyword}' in {file_name}:")
+                        for snippet in snippets:
+                            st.write(f"...{snippet}...")
+
+        with st.expander("Extracted Insights"):
             for file_name, text_content in file_contents.items():
-                snippets = find_keyword_in_text(keyword, text_content)
-                if snippets:
-                    st.write(f"Found {len(snippets)} instances of '{keyword}' in {file_name}:")
-                    for snippet in snippets:
-                        st.write(f"...{snippet}...")
-
-# Display insights
-with st.expander("Extracted Insights"):
-    for file_name, text_content in file_contents.items():
-        insights = extract_insights(text_content)
-        st.write(f"Insights from {file_name}:")
-        st.write(insights)
+                insights = extract_insights(api_key, text_content)
+                st.write(f"Insights from {file_name}:")
+                st.write(insights)
