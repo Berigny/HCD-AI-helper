@@ -1,5 +1,7 @@
 streamlit
-openai
-pypdf2
-python-pptx
 python-docx
+PyPDF2
+python-pptx
+regex
+openai
+embedchain
