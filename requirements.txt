@@ -1,0 +1,5 @@
+streamlit
+openai
+pypdf2
+python-pptx
+python-docx
